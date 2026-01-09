@@ -1,0 +1,42 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper: Get user data
+    function getUserData(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data;
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Questions Collection
+    match /questions/{questionId} {
+      allow create: if request.auth != null; // Everyone can ask
+      allow read: if request.auth != null;
+      allow delete, update: if request.auth != null && (getUserData(request.auth.uid).role == 'admin' || request.auth.uid == resource.data.authorId);
+    }
+
+    // Answers Collection (THE HIERARCHY RULE)
+    match /answers/{answerId} {
+      allow read: if request.auth != null;
+
+      allow create: if request.auth != null 
+        && (
+          getUserData(request.auth.uid).role == 'admin' 
+          || (
+            // Logic: Senior must be higher year than asker and same domain
+            getUserData(request.auth.uid).role == 'senior' &&
+            getUserData(request.auth.uid).year > get(/databases/$(database)/documents/questions/$(request.resource.data.questionId)).data.askedByYear &&
+            getUserData(request.auth.uid).section == get(/databases/$(database)/documents/questions/$(request.resource.data.questionId)).data.section
+          )
+        );
+
+      allow delete: if request.auth != null && (getUserData(request.auth.uid).role == 'admin' || request.auth.uid == resource.data.authorId);
+    }
+  }
+}
